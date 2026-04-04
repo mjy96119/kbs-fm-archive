@@ -4,7 +4,7 @@ import os
 import re
 
 def get_kbs_playlist():
-    # 게시판 목록을 가져오는 실제 데이터 API 주소
+    # 게시판 목록 API 주소
     list_url = "https://program.kbs.co.kr/api/v1/notice"
     params = {
         "program_id": "R2002-0282",
@@ -12,57 +12,56 @@ def get_kbs_playlist():
         "page": 1,
         "page_size": 20
     }
+    # 브라우저인 척하기 위한 헤더 강화
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://program.kbs.co.kr/1fm/radio/startfm/pc/board.html'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://program.kbs.co.kr/1fm/radio/startfm/pc/board.html',
+        'Origin': 'https://program.kbs.co.kr'
     }
 
     new_data = {}
 
     try:
-        # 1. 게시글 목록 API 호출
         res = requests.get(list_url, params=params, headers=headers, timeout=15)
+        res.raise_for_status() # 접속 에러 시 중단
         post_list = res.json().get('data', {}).get('list', [])
 
         for post in post_list:
             title = post.get('title', '')
             post_id = post.get('id', '')
             
-            # 날짜 추출 (예: 2026년 4월 6일)
-            date_match = re.search(r'(\d+)년\s*(\d+)월\s*(\d+)일', title)
-            if date_match and post_id:
-                year = date_match.group(1)
-                month = date_match.group(2).zfill(2)
-                day = date_match.group(3).zfill(2)
+            # "2026년 4월 6일(월) 선곡내용"에서 숫자만 모두 추출
+            date_nums = re.findall(r'\d+', title)
+            if len(date_nums) >= 3 and post_id:
+                year = date_nums[0]
+                month = date_nums[1].zfill(2)
+                day = date_nums[2].zfill(2)
                 date_key = f"{year}-{month}-{day}"
 
-                # 2. 게시글 상세 본문 API 호출
+                # 상세 본문 API 호출
                 detail_url = f"https://program.kbs.co.kr/api/v1/notice/{post_id}"
                 detail_res = requests.get(detail_url, headers=headers, timeout=15)
+                detail_res.raise_for_status()
                 content_html = detail_res.json().get('data', {}).get('content', '')
                 
-                # HTML 태그 제거 및 줄바꿈 정리
+                # HTML 태그 제거 및 텍스트 정리
                 content = re.sub(r'<[^>]+>', '\n', content_html)
+                lines = [l.strip() for l in content.split('\n') if l.strip()]
                 
                 songs = []
                 idx = 1
-                # 줄바꿈 기준으로 나누고 공백 제거
-                lines = [l.strip() for l in content.split('\n') if l.strip()]
-                
                 for i, line in enumerate(lines):
-                    # "1. 작곡가" 형태의 줄 찾기
+                    # "1. 작곡가" 또는 "1 작곡가" 형태 탐색
                     if re.match(r'^\d+[\.\s]', line):
                         composer = re.sub(r'^\d+[\.\s]*', '', line)
-                        title_info = "정보 없음"
+                        title_info = lines[i+1] if i + 1 < len(lines) else "제목 정보 없음"
+                        
+                        # 연주자 정보 탐색 (다음 줄이 제목이 아닐 경우 등 대비)
                         artist_info = ""
-                        
-                        # 다음 줄을 제목으로 추정
-                        if i + 1 < len(lines):
-                            title_info = lines[i+1]
-                        
-                        # 그 다음 줄을 연주자(-로 시작하거나 / 포함)로 추정
-                        if i + 2 < len(lines) and (lines[i+2].startswith('-') or '/' in lines[i+2]):
-                            artist_info = lines[i+2].replace('-', '').strip()
+                        if i + 2 < len(lines):
+                            next_line = lines[i+2]
+                            if next_line.startswith('-') or '/' in next_line or '(' in next_line:
+                                artist_info = next_line.replace('-', '').strip()
                         
                         songs.append({
                             "no": idx,
@@ -73,30 +72,28 @@ def get_kbs_playlist():
                 
                 if songs:
                     new_data[date_key] = songs
-                    
     except Exception as e:
-        print(f"스크래핑 오류: {e}")
+        print(f"오류 발생: {e}")
             
     return new_data
 
-# --- 데이터 저장 및 누적 로직 ---
+# --- 저장 로직 ---
 data_file = 'data.json'
 total_data = {}
 
-# 기존 데이터가 있으면 불러오기
-if os.path.exists(data_file):
+if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
     with open(data_file, 'r', encoding='utf-8') as f:
         try:
             total_data = json.load(f)
         except:
             total_data = {}
 
-# 신규 데이터 업데이트 (기존 데이터와 합침)
+# 데이터 합치기
 new_records = get_kbs_playlist()
-total_data.update(new_records)
-
-# 최종 파일 저장
-with open(data_file, 'w', encoding='utf-8') as f:
-    json.dump(total_data, f, ensure_ascii=False, indent=4)
-
-print(f"업데이트 완료! 현재 총 {len(total_data)}일치의 데이터가 저장되어 있습니다.")
+if new_records:
+    total_data.update(new_records)
+    with open(data_file, 'w', encoding='utf-8') as f:
+        json.dump(total_data, f, ensure_ascii=False, indent=4)
+    print(f"성공: {len(new_records)}일치 데이터 업데이트 완료")
+else:
+    print("실패: 가져온 데이터가 없습니다. 제목 형식을 다시 확인하세요.")
