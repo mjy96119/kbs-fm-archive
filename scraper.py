@@ -6,55 +6,65 @@ from playwright.sync_api import sync_playwright
 def get_kbs_data():
     new_data = {}
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+        # 가상 브라우저 실행
+        browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
         context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         page = context.new_page()
         
         try:
-            # 1. 게시판 목록 접속
-            page.goto("https://program.kbs.co.kr/1fm/radio/startfm/pc/board.html?smenu=0cc198&bbs_loc=R2002-0282-03-537648,list,none,1,0", wait_until="domcontentloaded")
-            page.wait_for_selector(".board_list li", timeout=15000)
+            print("KBS 게시판 접속 중...")
+            # 게시글 목록 페이지 접속
+            page.goto("https://program.kbs.co.kr/1fm/radio/startfm/pc/board.html?smenu=0cc198&bbs_loc=R2002-0282-03-537648,list,none,1,0", wait_until="networkidle")
             
+            # 목록 로딩 대기 (최대 20초)
+            page.wait_for_selector(".board_list li", timeout=20000)
             posts = page.query_selector_all(".board_list li")
+            
             targets = []
             for post in posts:
                 title_el = post.query_selector(".title a")
                 if title_el:
-                    title_text = title_el.inner_text()
-                    if "선곡" in title_text:
-                        targets.append({"title": title_text, "url": "https://program.kbs.co.kr" + title_el.get_attribute("href")})
+                    title_text = title_el.inner_text().strip()
+                    href = title_el.get_attribute("href")
+                    # 제목에 숫자가 2개 이상 포함되면 날짜가 있는 선곡표로 간주
+                    if len(re.findall(r'\d+', title_text)) >= 2:
+                        targets.append({"title": title_text, "url": "https://program.kbs.co.kr" + href})
 
-            # 2. 상세 페이지 분석 (최신 5개)
-            for target in targets[:5]:
+            print(f"총 {len(targets)}개의 후보 게시글 발견")
+
+            for target in targets[:5]: # 최신 5개 분석
+                # 날짜 키 생성 (YYYY-MM-DD)
                 date_nums = re.findall(r'\d+', target['title'])
-                if len(date_nums) < 3: continue
-                date_key = f"{date_nums[0]}-{date_nums[1].zfill(2)}-{date_nums[2].zfill(2)}"
+                # 연도가 없으면 2026으로 가정, 월/일 추출
+                if len(date_nums) == 2:
+                    date_key = f"2026-{date_nums[0].zfill(2)}-{date_nums[1].zfill(2)}"
+                elif len(date_nums) >= 3:
+                    date_key = f"{date_nums[0]}-{date_nums[1].zfill(2)}-{date_nums[2].zfill(2)}"
+                else:
+                    continue
+
+                print(f"[{date_key}] 상세 페이지 읽는 중: {target['url']}")
+                page.goto(target['url'], wait_until="networkidle")
                 
-                print(f"{date_key} 추출 시도 중...")
-                page.goto(target['url'], wait_until="domcontentloaded")
-                # 본문 영역이 나타날 때까지 대기
-                page.wait_for_selector(".board_content", timeout=15000)
+                # 본문 로딩 대기
+                content_el = page.wait_for_selector(".board_content", timeout=15000)
+                if not content_el: continue
                 
-                # HTML 구조 내부의 모든 텍스트 라인을 가져옴
-                content_html = page.inner_html(".board_content")
-                # <br>, <p>, <div> 등을 줄바꿈 문자로 변환하여 파싱하기 쉽게 만듦
-                text = re.sub(r'<(br|p|div)[^>]*>', '\n', content_html)
-                text = re.sub(r'<[^>]+>', '', text) # 나머지 태그 제거
+                # 본문 텍스트 전체 추출
+                content = content_el.inner_text()
+                lines = [l.strip() for l in content.split('\n') if l.strip()]
                 
-                lines = [l.strip() for l in text.split('\n') if l.strip()]
                 songs = []
-                
+                # 1. 작곡가 / 2. 제목 / 3. 연주자 구조 파싱
                 for i, line in enumerate(lines):
-                    # "1." 또는 "1 "로 시작하는 라인을 곡의 시작점으로 인식
-                    if re.match(r'^\d+[\.\s]', line):
-                        composer = re.sub(r'^\d+[\.\s]*', '', line).strip()
-                        # 보통 다음 줄에 제목, 그 다음 줄에 연주자가 옴
-                        title = lines[i+1] if i+1 < len(lines) else "제목 정보 없음"
+                    # 숫자로 시작하는 줄 (예: "1.", "1 ", "01.")
+                    if re.match(r'^\d+[\.\s\)]', line):
+                        composer = re.sub(r'^\d+[\.\s\)]*', '', line).strip()
+                        title = lines[i+1] if i+1 < len(lines) else ""
                         artist = ""
-                        # 연주자 라인은 보통 '-'로 시작하거나 '/'를 포함함
-                        if i+2 < len(lines):
-                            if lines[i+2].startswith('-') or '/' in lines[i+2]:
-                                artist = lines[i+2].lstrip('-').strip()
+                        # 다음 줄이 숫자로 시작하지 않으면 연주자 정보로 간주
+                        if i+2 < len(lines) and not re.match(r'^\d+[\.\s\)]', lines[i+2]):
+                            artist = lines[i+2].replace('-', '').strip()
                         
                         songs.append({
                             "no": len(songs) + 1,
@@ -64,16 +74,16 @@ def get_kbs_data():
                 
                 if songs:
                     new_data[date_key] = songs
-                    print(f"{date_key}: {len(songs)}곡 수집 완료")
+                    print(f"-> {date_key}: {len(songs)}곡 수집 성공")
 
         except Exception as e:
-            print(f"오류 발생: {e}")
+            print(f"실행 중 에러: {e}")
         finally:
             browser.close()
             
     return new_data
 
-# 저장 및 병합 로직
+# 저장 및 기존 데이터 병합
 data_file = 'data.json'
 total_data = {}
 if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
@@ -86,6 +96,6 @@ if new_records:
     total_data.update(new_records)
     with open(data_file, 'w', encoding='utf-8') as f:
         json.dump(total_data, f, ensure_ascii=False, indent=4)
-    print("성공적으로 data.json이 업데이트되었습니다.")
+    print("data.json 업데이트 완료")
 else:
-    print("데이터를 찾지 못했습니다. 파싱 규칙을 점검해야 합니다.")
+    print("수집된 데이터가 없습니다.")
