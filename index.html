@@ -19,14 +19,17 @@
         .like-btn.active { color: var(--accent); }
         .nav-bar { position: fixed; bottom: 0; width: 100%; background: white; display: flex; border-top: 1px solid #ddd; }
         .nav-item { flex: 1; text-align: center; padding: 15px; font-size: 14px; cursor: pointer; }
+        .btn-month { border: none; background: #eee; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 16px; }
     </style>
 </head>
 <body>
     <header id="header-title">출발 FM과 함께</header>
     <div class="container" id="main-content">
         <div class="card" id="calendar-card">
-            <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-weight:bold;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; font-weight:bold;">
+                <button class="btn-month" onclick="changeMonth(-1)">◀</button>
                 <span id="month-label"></span>
+                <button class="btn-month" onclick="changeMonth(1)">▶</button>
             </div>
             <div class="cal-grid" id="cal-grid"></div>
         </div>
@@ -40,25 +43,55 @@
 
     <script>
         let playlistData = {};
+        let viewDate = new Date(); 
         let currentView = 'home';
 
-        // 데이터 로드 (나중에 파이썬이 생성할 파일)
-        fetch('./data.json').then(res => res.json()).then(data => {
-            playlistData = data;
-            renderCalendar();
-        }).catch(() => {
-            document.getElementById('song-list-container').innerHTML = "<p style='text-align:center; color:#999; margin-top:20px;'>데이터 파일을 생성 중입니다...<br>(첫 자동 업데이트 이후 표시됩니다)</p>";
-        });
+        // 1. 데이터 로드
+        fetch('./data.json')
+            .then(res => res.json())
+            .then(data => {
+                playlistData = data;
+                renderCalendar();
+            })
+            .catch(() => {
+                document.getElementById('song-list-container').innerHTML = 
+                    "<p style='text-align:center; color:#999; margin-top:20px;'>데이터를 불러오는 중이거나 아직 생성되지 않았습니다.</p>";
+            });
 
+        // 2. 달력 그리기
         function renderCalendar() {
             const grid = document.getElementById('cal-grid');
-            const now = new Date();
-            document.getElementById('month-label').innerText = `${now.getFullYear()}년 ${now.getMonth()+1}월`;
+            const year = viewDate.getFullYear();
+            const month = viewDate.getMonth();
+            
+            document.getElementById('month-label').innerText = `${year}년 ${month + 1}월`;
             
             grid.innerHTML = '';
-            const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-            for(let i=1; i<=lastDay; i++) {
-                const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+
+            // 요일 헤더 (월~일)
+            const daysHeader = ['월', '화', '수', '목', '금', '토', '일'];
+            daysHeader.forEach(d => {
+                const dayHead = document.createElement('div');
+                dayHead.style.fontWeight = 'bold';
+                dayHead.style.color = '#888';
+                dayHead.style.paddingBottom = '10px';
+                dayHead.innerText = d;
+                grid.appendChild(dayHead);
+            });
+
+            // 1일 요일 및 마지막 날 계산
+            let firstDay = new Date(year, month, 1).getDay();
+            firstDay = (firstDay === 0) ? 6 : firstDay - 1; // 월요일 시작 기준 보정
+            const lastDate = new Date(year, month + 1, 0).getDate();
+
+            // 시작 빈칸
+            for (let i = 0; i < firstDay; i++) {
+                grid.appendChild(document.createElement('div'));
+            }
+
+            // 날짜 생성
+            for (let i = 1; i <= lastDate; i++) {
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
                 const div = document.createElement('div');
                 div.className = 'day' + (playlistData[dateStr] ? ' has-data' : '');
                 div.innerText = i;
@@ -67,24 +100,25 @@
             }
         }
 
+        // 3. 날짜 선택 및 선곡표 출력
         function selectDate(date, el) {
             document.querySelectorAll('.day').forEach(d => d.classList.remove('selected'));
             el.classList.add('selected');
             renderSongs(playlistData[date] || [], date);
         }
 
-        function renderSongs(songs, date) {
+        function renderSongs(songs, titleText) {
             const container = document.getElementById('song-list-container');
-            if(songs.length === 0) {
-                container.innerHTML = `<p style='text-align:center; padding:20px;'>${date} 선곡표가 없습니다.</p>`;
+            if (songs.length === 0) {
+                container.innerHTML = `<p style='text-align:center; padding:20px;'>${titleText} 선곡표가 없습니다.</p>`;
                 return;
             }
             const likes = JSON.parse(localStorage.getItem('fm-likes') || '[]');
-            container.innerHTML = `<h3 style='margin-left:5px;'>${date} 선곡표</h3>` + songs.map(s => {
+            container.innerHTML = `<h3 style='margin-left:5px;'>${titleText}</h3>` + songs.map(s => {
                 const isLiked = likes.some(l => l.title === s.title);
                 return `
                 <div class="card song-item">
-                    <span class="like-btn ${isLiked?'active':''}" onclick="toggleLike('${s.title}', '${s.artist}')">${isLiked?'❤️':'♡'}</span>
+                    <span class="like-btn ${isLiked?'active':''}" onclick="toggleLike('${s.title.replace(/'/g, "\\'")}', '${s.artist.replace(/'/g, "\\'")}')">${isLiked?'❤️':'♡'}</span>
                     <div>
                         <div style="font-weight:600;">${s.title}</div>
                         <div style="font-size:12px; color:#666;">${s.artist}</div>
@@ -93,128 +127,48 @@
             }).join('');
         }
 
+        // 4. 월 변경 및 뷰 전환
+        function changeMonth(diff) {
+            viewDate.setMonth(viewDate.getMonth() + diff);
+            renderCalendar();
+            document.getElementById('song-list-container').innerHTML = '';
+        }
+
         function toggleLike(title, artist) {
             let likes = JSON.parse(localStorage.getItem('fm-likes') || '[]');
-            if(likes.some(l => l.title === title)) {
+            if (likes.some(l => l.title === title)) {
                 likes = likes.filter(l => l.title !== title);
             } else {
                 likes.push({title, artist});
             }
             localStorage.setItem('fm-likes', JSON.stringify(likes));
-            currentView === 'likes' ? showView('likes') : location.reload(); 
+            
+            if (currentView === 'likes') {
+                showView('likes');
+            } else {
+                // 현재 리스트 새로고침
+                const dateHeader = document.querySelector('#song-list-container h3');
+                if (dateHeader) {
+                    const date = dateHeader.innerText;
+                    renderSongs(playlistData[date] || likes, date);
+                }
+            }
         }
 
         function showView(view) {
             currentView = view;
             const container = document.getElementById('song-list-container');
             const calCard = document.getElementById('calendar-card');
-            if(view === 'likes') {
+            if (view === 'likes') {
                 calCard.style.display = 'none';
                 const likes = JSON.parse(localStorage.getItem('fm-likes') || '[]');
                 renderSongs(likes, '❤️ 나의 보관함');
             } else {
                 calCard.style.display = 'block';
                 container.innerHTML = '';
+                renderCalendar();
             }
         }
-
-            function renderCalendar() {
-        const grid = document.getElementById('cal-grid');
-        const now = new Date(); // 현재 시점 기준
-        const year = now.getFullYear();
-        const month = now.getMonth();
-        
-        document.getElementById('month-label').innerText = `${year}년 ${month + 1}월`;
-        grid.innerHTML = '';
-
-        // 요일 헤더 (월~일 순서)
-        const days = ['월', '화', '수', '목', '금', '토', '일'];
-        days.forEach(d => {
-            const dayHead = document.createElement('div');
-            dayHead.style.fontWeight = 'bold';
-            dayHead.style.color = '#888';
-            dayHead.innerText = d;
-            grid.appendChild(dayHead);
-        });
-
-        // 1일의 요일 계산 (0:일, 1:월 ... 6:토)
-        let firstDay = new Date(year, month, 1).getDay();
-        // 월요일 시작으로 변환 (일요일(0)을 6으로, 나머지는 -1)
-        firstDay = (firstDay === 0) ? 6 : firstDay - 1;
-
-        const lastDate = new Date(year, month + 1, 0).getDate();
-
-        // 1일 전까지 빈칸 채우기
-        for (let i = 0; i < firstDay; i++) {
-            grid.appendChild(document.createElement('div'));
-        }
-
-        // 날짜 채우기
-        for (let i = 1; i <= lastDate; i++) {
-            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-            const div = document.createElement('div');
-            div.className = 'day' + (playlistData[dateStr] ? ' has-data' : '');
-            div.innerText = i;
-            div.onclick = () => selectDate(dateStr, div);
-            grid.appendChild(div);
-        }
-    }
-
-            let playlistData = {};
-    let viewDate = new Date(); // 현재 보고 있는 달 기준
-
-    // 데이터 로드
-    fetch('./data.json').then(res => res.json()).then(data => {
-        playlistData = data;
-        renderCalendar();
-    }).catch(() => {
-        document.getElementById('song-list-container').innerHTML = "<p style='text-align:center;'>데이터를 가져오는 중...</p>";
-    });
-
-    function renderCalendar() {
-        const grid = document.getElementById('cal-grid');
-        const year = viewDate.getFullYear();
-        const month = viewDate.getMonth();
-        
-        // 헤더 업데이트 (이전/다음 버튼 추가)
-        const monthLabel = document.getElementById('month-label');
-        monthLabel.innerHTML = `
-            <button onclick="changeMonth(-1)" style="border:none; background:none; cursor:pointer;">◀</button>
-            <span>${year}년 ${month + 1}월</span>
-            <button onclick="changeMonth(1)" style="border:none; background:none; cursor:pointer;">▶</button>
-        `;
-
-        grid.innerHTML = '';
-        const days = ['월', '화', '수', '목', '금', '토', '일'];
-        days.forEach(d => {
-            const dayHead = document.createElement('div');
-            dayHead.style.fontWeight = 'bold'; dayHead.style.padding = '10px 0';
-            dayHead.innerText = d; grid.appendChild(dayHead);
-        });
-
-        let firstDay = new Date(year, month, 1).getDay();
-        firstDay = (firstDay === 0) ? 6 : firstDay - 1; // 월요일 시작 보정
-        const lastDate = new Date(year, month + 1, 0).getDate();
-
-        for (let i = 0; i < firstDay; i++) grid.appendChild(document.createElement('div'));
-
-        for (let i = 1; i <= lastDate; i++) {
-            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-            const div = document.createElement('div');
-            div.className = 'day' + (playlistData[dateStr] ? ' has-data' : '');
-            div.innerText = i;
-            div.onclick = () => selectDate(dateStr, div);
-            grid.appendChild(div);
-        }
-    }
-
-    function changeMonth(diff) {
-        viewDate.setMonth(viewDate.getMonth() + diff);
-        renderCalendar();
-    }
-    
-    // ... (selectDate, renderSongs 등 나머지 함수는 동일하게 유지)
     </script>
-
 </body>
 </html>
