@@ -4,7 +4,18 @@ import json
 import os
 import re
 
+
 def get_kbs_playlist():
+    # 페이지 번호를 1, 2 정도까지 훑도록 수정하면 과거 데이터 누락을 방지합니다.
+    base_url = "https://program.kbs.co.kr/1fm/radio/startfm/pc/board.html?smenu=0cc198&bbs_loc=R2002-0282-03-537648,list,none,{page},0"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    new_data = {}
+
+    for page in [1, 2]: # 최근 2페이지까지 확인
+        res = requests.get(base_url.format(page=page), headers=headers)
+    ##
+
+    
     # KBS '출발 FM과 함께' 선곡표 게시판 주소
     url = "https://program.kbs.co.kr/1fm/radio/startfm/pc/board.html?smenu=0cc198&bbs_loc=R2002-0282-03-537648,list,none,1,0"
     headers = {'User-Agent': 'Mozilla/5.0'}
