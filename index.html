@@ -1,122 +1,45 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>출발 FM 선곡표 아카이브</title>
-    <style>
-        :root { --primary: #2c3e50; --accent: #e74c3c; --bg: #f8f9fa; }
-        body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: var(--bg); padding-bottom: 80px; }
-        header { background: var(--primary); color: white; padding: 15px; text-align: center; font-weight: bold; position: sticky; top: 0; z-index: 10; }
-        .container { max-width: 500px; margin: 0 auto; padding: 15px; }
-        .card { background: white; border-radius: 12px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 15px; }
-        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; }
-        .day { padding: 10px 0; cursor: pointer; border-radius: 8px; font-size: 14px; position: relative; }
-        .day.has-data::after { content: ''; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; background: #3498db; border-radius: 50%; }
-        .day.selected { background: #3498db; color: white; }
-        .song-item { display: flex; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; }
-        .like-btn { font-size: 20px; cursor: pointer; margin-right: 12px; color: #ccc; transition: 0.2s; }
-        .like-btn.active { color: var(--accent); }
-        .nav-bar { position: fixed; bottom: 0; width: 100%; background: white; display: flex; border-top: 1px solid #ddd; }
-        .nav-item { flex: 1; text-align: center; padding: 15px; font-size: 14px; cursor: pointer; }
-    </style>
-</head>
-<body>
-    <header id="header-title">출발 FM과 함께</header>
-    <div class="container" id="main-content">
-        <div class="card" id="calendar-card">
-            <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-weight:bold;">
-                <span id="month-label"></span>
-            </div>
-            <div class="cal-grid" id="cal-grid"></div>
-        </div>
-        <div id="song-list-container"></div>
-    </div>
+<script>
+    // ... (기존 style과 기본 구조는 유지)
 
-    <nav class="nav-bar">
-        <div class="nav-item" onclick="showView('home')">📅 달력</div>
-        <div class="nav-item" onclick="showView('likes')">❤️ 보관함</div>
-    </nav>
+    function renderCalendar() {
+        const grid = document.getElementById('cal-grid');
+        const now = new Date(); // 현재 시점 기준
+        const year = now.getFullYear();
+        const month = now.getMonth();
+        
+        document.getElementById('month-label').innerText = `${year}년 ${month + 1}월`;
+        grid.innerHTML = '';
 
-    <script>
-        let playlistData = {};
-        let currentView = 'home';
-
-        // 데이터 로드 (나중에 파이썬이 생성할 파일)
-        fetch('./data.json').then(res => res.json()).then(data => {
-            playlistData = data;
-            renderCalendar();
-        }).catch(() => {
-            document.getElementById('song-list-container').innerHTML = "<p style='text-align:center; color:#999; margin-top:20px;'>데이터 파일을 생성 중입니다...<br>(첫 자동 업데이트 이후 표시됩니다)</p>";
+        // 요일 헤더 (월~일 순서)
+        const days = ['월', '화', '수', '목', '금', '토', '일'];
+        days.forEach(d => {
+            const dayHead = document.createElement('div');
+            dayHead.style.fontWeight = 'bold';
+            dayHead.style.color = '#888';
+            dayHead.innerText = d;
+            grid.appendChild(dayHead);
         });
 
-        function renderCalendar() {
-            const grid = document.getElementById('cal-grid');
-            const now = new Date();
-            document.getElementById('month-label').innerText = `${now.getFullYear()}년 ${now.getMonth()+1}월`;
-            
-            grid.innerHTML = '';
-            const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-            for(let i=1; i<=lastDay; i++) {
-                const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
-                const div = document.createElement('div');
-                div.className = 'day' + (playlistData[dateStr] ? ' has-data' : '');
-                div.innerText = i;
-                div.onclick = () => selectDate(dateStr, div);
-                grid.appendChild(div);
-            }
+        // 1일의 요일 계산 (0:일, 1:월 ... 6:토)
+        let firstDay = new Date(year, month, 1).getDay();
+        // 월요일 시작으로 변환 (일요일(0)을 6으로, 나머지는 -1)
+        firstDay = (firstDay === 0) ? 6 : firstDay - 1;
+
+        const lastDate = new Date(year, month + 1, 0).getDate();
+
+        // 1일 전까지 빈칸 채우기
+        for (let i = 0; i < firstDay; i++) {
+            grid.appendChild(document.createElement('div'));
         }
 
-        function selectDate(date, el) {
-            document.querySelectorAll('.day').forEach(d => d.classList.remove('selected'));
-            el.classList.add('selected');
-            renderSongs(playlistData[date] || [], date);
+        // 날짜 채우기
+        for (let i = 1; i <= lastDate; i++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+            const div = document.createElement('div');
+            div.className = 'day' + (playlistData[dateStr] ? ' has-data' : '');
+            div.innerText = i;
+            div.onclick = () => selectDate(dateStr, div);
+            grid.appendChild(div);
         }
-
-        function renderSongs(songs, date) {
-            const container = document.getElementById('song-list-container');
-            if(songs.length === 0) {
-                container.innerHTML = `<p style='text-align:center; padding:20px;'>${date} 선곡표가 없습니다.</p>`;
-                return;
-            }
-            const likes = JSON.parse(localStorage.getItem('fm-likes') || '[]');
-            container.innerHTML = `<h3 style='margin-left:5px;'>${date} 선곡표</h3>` + songs.map(s => {
-                const isLiked = likes.some(l => l.title === s.title);
-                return `
-                <div class="card song-item">
-                    <span class="like-btn ${isLiked?'active':''}" onclick="toggleLike('${s.title}', '${s.artist}')">${isLiked?'❤️':'♡'}</span>
-                    <div>
-                        <div style="font-weight:600;">${s.title}</div>
-                        <div style="font-size:12px; color:#666;">${s.artist}</div>
-                    </div>
-                </div>`;
-            }).join('');
-        }
-
-        function toggleLike(title, artist) {
-            let likes = JSON.parse(localStorage.getItem('fm-likes') || '[]');
-            if(likes.some(l => l.title === title)) {
-                likes = likes.filter(l => l.title !== title);
-            } else {
-                likes.push({title, artist});
-            }
-            localStorage.setItem('fm-likes', JSON.stringify(likes));
-            currentView === 'likes' ? showView('likes') : location.reload(); 
-        }
-
-        function showView(view) {
-            currentView = view;
-            const container = document.getElementById('song-list-container');
-            const calCard = document.getElementById('calendar-card');
-            if(view === 'likes') {
-                calCard.style.display = 'none';
-                const likes = JSON.parse(localStorage.getItem('fm-likes') || '[]');
-                renderSongs(likes, '❤️ 나의 보관함');
-            } else {
-                calCard.style.display = 'block';
-                container.innerHTML = '';
-            }
-        }
-    </script>
-</body>
-</html>
+    }
+</script>
