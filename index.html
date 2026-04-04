@@ -165,6 +165,63 @@
     }
 </script>
 
+<script>
+    let playlistData = {};
+    let viewDate = new Date(); // 현재 보고 있는 달 기준
+
+    // 데이터 로드
+    fetch('./data.json').then(res => res.json()).then(data => {
+        playlistData = data;
+        renderCalendar();
+    }).catch(() => {
+        document.getElementById('song-list-container').innerHTML = "<p style='text-align:center;'>데이터를 가져오는 중...</p>";
+    });
+
+    function renderCalendar() {
+        const grid = document.getElementById('cal-grid');
+        const year = viewDate.getFullYear();
+        const month = viewDate.getMonth();
+        
+        // 헤더 업데이트 (이전/다음 버튼 추가)
+        const monthLabel = document.getElementById('month-label');
+        monthLabel.innerHTML = `
+            <button onclick="changeMonth(-1)" style="border:none; background:none; cursor:pointer;">◀</button>
+            <span>${year}년 ${month + 1}월</span>
+            <button onclick="changeMonth(1)" style="border:none; background:none; cursor:pointer;">▶</button>
+        `;
+
+        grid.innerHTML = '';
+        const days = ['월', '화', '수', '목', '금', '토', '일'];
+        days.forEach(d => {
+            const dayHead = document.createElement('div');
+            dayHead.style.fontWeight = 'bold'; dayHead.style.padding = '10px 0';
+            dayHead.innerText = d; grid.appendChild(dayHead);
+        });
+
+        let firstDay = new Date(year, month, 1).getDay();
+        firstDay = (firstDay === 0) ? 6 : firstDay - 1; // 월요일 시작 보정
+        const lastDate = new Date(year, month + 1, 0).getDate();
+
+        for (let i = 0; i < firstDay; i++) grid.appendChild(document.createElement('div'));
+
+        for (let i = 1; i <= lastDate; i++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+            const div = document.createElement('div');
+            div.className = 'day' + (playlistData[dateStr] ? ' has-data' : '');
+            div.innerText = i;
+            div.onclick = () => selectDate(dateStr, div);
+            grid.appendChild(div);
+        }
+    }
+
+    function changeMonth(diff) {
+        viewDate.setMonth(viewDate.getMonth() + diff);
+        renderCalendar();
+    }
+    
+    // ... (selectDate, renderSongs 등 나머지 함수는 동일하게 유지)
+</script>
+
 
 </body>
 </html>
