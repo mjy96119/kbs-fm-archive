@@ -1,0 +1,33 @@
+name: Update Radio Playlist
+
+on:
+  schedule:
+    - cron: '10 15 * * *' # 한국 시간 매일 00:10 (UTC 15:10)
+  workflow_dispatch: # 직접 버튼 눌러서 실행 가능하게 함
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4
+
+      - name: Run Scraper
+        run: python scraper.py
+
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.json
+          git commit -m "Update playlist data" || echo "No changes to commit"
+          git push
