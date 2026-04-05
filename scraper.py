@@ -4,15 +4,8 @@ import os
 import re
 
 def get_kbs_data():
-    # 1. 목록을 가져오는 정확한 엔드포인트
-    list_url = "https://program.kbs.co.kr/api/v1/notice"
-    
-    params = {
-        "program_id": "R2002-0282",
-        "section_id": "03-537648",
-        "page": 1,
-        "page_size": 10
-    }
+    # 1. 목록을 가져오는 정확한 API 엔드포인트 (파라미터를 URL에 직접 결합)
+    list_url = "https://program.kbs.co.kr/api/v1/notice?program_id=R2002-0282&section_id=03-537648&page=1&page_size=10"
     
     # 서버가 봇으로 인식하지 못하도록 헤더를 더 정교하게 구성합니다.
     headers = {
@@ -20,30 +13,37 @@ def get_kbs_data():
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         "Referer": "https://program.kbs.co.kr/1fm/radio/startfm/pc/board.html",
-        "Origin": "https://program.kbs.co.kr"
+        "Origin": "https://program.kbs.co.kr",
+        "Connection": "keep-alive"
     }
 
     new_data = {}
 
     try:
         print("KBS 목록 API 호출 중...")
-        # 세션을 사용하여 쿠키 유지를 흉내냅니다.
+        # 세션을 사용하여 실제 브라우저의 흐름을 흉내냅니다.
         session = requests.Session()
-        response = session.get(list_url, params=params, headers=headers, timeout=15)
-        response.raise_for_status()
+        response = session.get(list_url, headers=headers, timeout=15)
         
+        # 403 에러 발생 시 상세 로그 출력
+        if response.status_code == 403:
+            print("에러: 403 Forbidden. 서버가 접속을 차단했습니다.")
+            return {}
+            
+        response.raise_for_status()
         post_list = response.json().get("data", {}).get("list", [])
         print(f"발견된 게시글: {len(post_list)}개")
 
         for post in post_list:
             title = post.get("title", "")
-            post_id = str(post.get("id", "")) # ID를 문자열로 변환
+            post_id = str(post.get("id", "")) 
             
             if not post_id: continue
 
-            # 날짜 추출
+            # 날짜 추출 (정규표현식 강화)
             date_nums = re.findall(r'\d+', title)
             if len(date_nums) >= 2:
+                # 연도가 제목에 없으면 현재 연도(2026) 사용
                 y = date_nums[0] if len(date_nums) >= 3 else "2026"
                 m = date_nums[1] if len(date_nums) >= 3 else date_nums[0]
                 d = date_nums[2] if len(date_nums) >= 3 else date_nums[1]
@@ -51,20 +51,20 @@ def get_kbs_data():
                 
                 print(f"[{date_key}] 상세 내용(ID: {post_id}) 읽는 중...")
                 
-                # 2. 상세 페이지 API (주소에 불필요한 경로가 붙지 않도록 주의)
+                # 2. 상세 페이지 API (불필요한 경로가 붙지 않도록 절대 경로 사용)
                 detail_url = f"https://program.kbs.co.kr/api/v1/notice/{post_id}"
                 detail_res = session.get(detail_url, headers=headers, timeout=15)
                 
                 if detail_res.status_code == 200:
                     content_html = detail_res.json().get("data", {}).get("content", "")
                     
-                    # HTML 태그 제거 및 텍스트 줄바꿈 정제
+                    # HTML 태그 제거 및 줄바꿈 정제
                     clean_text = re.sub(r'<[^>]+>', '\n', content_html)
-                    lines = [l.strip() for l in clean_text.split('\n') if l.strip()]
+                    lines = [l.strip() for l in clean_text.strip().split('\n') if l.strip()]
                     
                     songs = []
                     for i, line in enumerate(lines):
-                        # "1. " 또는 "01. " 패턴 찾기
+                        # "1." 또는 "01." 패턴으로 시작하는 줄 찾기
                         if re.match(r'^\d+[\.\s\)]', line):
                             composer = re.sub(r'^\d+[\.\s\)]*', '', line).strip()
                             song_title = lines[i+1] if i+1 < len(lines) else "제목 정보 없음"
@@ -81,7 +81,7 @@ def get_kbs_data():
                     
                     if songs:
                         new_data[date_key] = songs
-                        print(f"-> {date_key}: {len(songs)}곡 저장 완료")
+                        print(f"-> {date_key}: {len(songs)}곡 수집 완료")
                 else:
                     print(f"-> {date_key} 상세 페이지 접근 실패 (Status: {detail_res.status_code})")
 
