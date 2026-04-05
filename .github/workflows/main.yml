@@ -6,6 +6,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Node.js 24 강제 사용
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -14,8 +16,7 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: |
-          pip install playwright
-          playwright install chromium
+          pip install requests # 브라우저 대신 requests만 사용
       - name: Run Scraper
         run: python scraper.py
       - name: Commit and Push
